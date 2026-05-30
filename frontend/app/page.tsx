@@ -330,8 +330,12 @@ export default function Home() {
             <textarea
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Ask a question about the selected papers..."
-              disabled={!selectedIds.length || busy}
+              placeholder={
+                selectedIds.length
+                  ? "Ask a question about the selected papers..."
+                  : "Attach or upload a paper, then ask a question..."
+              }
+              disabled={busy}
             />
             <button className="iconButton" disabled={!question.trim() || !selectedIds.length || busy} title="Send question">
               <Send size={20} />
