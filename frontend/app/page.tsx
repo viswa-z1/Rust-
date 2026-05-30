@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { BookOpen, FileUp, Link, RefreshCw, Send, Sparkles } from "lucide-react";
+import { BookOpen, FileUp, Link, Paperclip, RefreshCw, Send, Sparkles } from "lucide-react";
 import {
   askPapers,
   getPaper,
@@ -27,6 +27,7 @@ export default function Home() {
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [question, setQuestion] = useState("");
+  const [chatFile, setChatFile] = useState<File | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
@@ -92,6 +93,31 @@ export default function Home() {
       setStatus("");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "URL import failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleChatFileUpload(fileToUpload: File) {
+    setBusy(true);
+    setStatus("Uploading paper from chat...");
+    try {
+      const paper = await uploadPaper(fileToUpload, title);
+      await refreshPapers();
+      setSelectedIds((current) => (current.includes(paper.id) ? current : [paper.id, ...current]));
+      setActivePaper(paper);
+      setChatFile(null);
+      setTitle("");
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          content: `Uploaded and analyzed "${paper.title}". You can ask questions about it now.`
+        }
+      ]);
+      setStatus("");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Chat upload failed");
     } finally {
       setBusy(false);
     }
@@ -273,7 +299,34 @@ export default function Home() {
             )}
           </div>
 
+          {chatFile ? (
+            <div className="attachmentBar">
+              <span>{chatFile.name}</span>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => void handleChatFileUpload(chatFile)}
+                disabled={busy}
+              >
+                <FileUp size={16} /> Analyze
+              </button>
+            </div>
+          ) : null}
+
           <form className="composer" onSubmit={submitQuestion}>
+            <label className="attachButton" title="Attach paper">
+              <Paperclip size={19} />
+              <input
+                type="file"
+                accept=".pdf,.txt,.md"
+                onChange={(event) => {
+                  const nextFile = event.target.files?.[0] ?? null;
+                  setChatFile(nextFile);
+                  event.currentTarget.value = "";
+                }}
+                disabled={busy}
+              />
+            </label>
             <textarea
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
