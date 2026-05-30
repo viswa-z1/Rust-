@@ -39,6 +39,16 @@ export type ChatResponse = {
   citations: Citation[];
 };
 
+export type AgentStep = {
+  agent: "planner" | "retriever" | "analyst" | "citation";
+  action: string;
+  detail: string;
+};
+
+export type AgentChatResponse = ChatResponse & {
+  trace: AgentStep[];
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const message = await response.text();
@@ -82,3 +92,12 @@ export async function askPapers(question: string, paperIds: string[]): Promise<C
   );
 }
 
+export async function askResearchAgent(question: string, paperIds: string[]): Promise<AgentChatResponse> {
+  return parseResponse(
+    await fetch("/api/agent/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, paper_ids: paperIds })
+    })
+  );
+}

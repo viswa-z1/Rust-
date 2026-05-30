@@ -1,38 +1,69 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { BookOpen, FileUp, Link, Paperclip, RefreshCw, Send, Sparkles } from "lucide-react";
 import {
-  askPapers,
+  BookOpen,
+  BrainCircuit,
+  FileText,
+  FileUp,
+  Link,
+  Lock,
+  LogIn,
+  LogOut,
+  Mail,
+  Paperclip,
+  RefreshCw,
+  Send,
+  Sparkles,
+  Workflow
+} from "lucide-react";
+
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Separator } from "../components/ui/separator";
+import { Textarea } from "../components/ui/textarea";
+import {
+  askResearchAgent,
   getPaper,
   ingestPaperUrl,
   listPapers,
   uploadPaper,
+  type AgentStep,
   type Citation,
   type Paper,
   type PaperListItem
 } from "../lib/api";
+import { cn } from "../lib/utils";
 
 type Message = {
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
+  trace?: AgentStep[];
 };
 
 export default function Home() {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
   const [papers, setPapers] = useState<PaperListItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activePaper, setActivePaper] = useState<Paper | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [chatFile, setChatFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [question, setQuestion] = useState("");
-  const [chatFile, setChatFile] = useState<File | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
 
   const refreshPapers = useCallback(async () => {
+    if (!authenticated) return;
     try {
       const items = await listPapers();
       setPapers(items);
@@ -40,7 +71,11 @@ export default function Home() {
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not load papers");
     }
-  }, [selectedIds.length]);
+  }, [authenticated, selectedIds.length]);
+
+  useEffect(() => {
+    setAuthenticated(localStorage.getItem("paperlens-authenticated") === "true");
+  }, []);
 
   useEffect(() => {
     void refreshPapers();
@@ -63,7 +98,7 @@ export default function Home() {
   async function handleUpload() {
     if (!file) return;
     setBusy(true);
-    setStatus("Analyzing uploaded paper...");
+    setStatus("Analyst agent is extracting and profiling the paper...");
     try {
       const paper = await uploadPaper(file, title);
       await refreshPapers();
@@ -82,7 +117,7 @@ export default function Home() {
   async function handleUrlImport() {
     if (!url.trim()) return;
     setBusy(true);
-    setStatus("Fetching and analyzing paper...");
+    setStatus("Ingestion agent is fetching and analyzing the source...");
     try {
       const paper = await ingestPaperUrl(url.trim(), title);
       await refreshPapers();
@@ -100,7 +135,7 @@ export default function Home() {
 
   async function handleChatFileUpload(fileToUpload: File) {
     setBusy(true);
-    setStatus("Uploading paper from chat...");
+    setStatus("Ingestion agent is processing the attached paper...");
     try {
       const paper = await uploadPaper(fileToUpload, title);
       await refreshPapers();
@@ -112,7 +147,7 @@ export default function Home() {
         ...current,
         {
           role: "assistant",
-          content: `Uploaded and analyzed "${paper.title}". You can ask questions about it now.`
+          content: `Uploaded and analyzed "${paper.title}". The research agents can use it now.`
         }
       ]);
       setStatus("");
@@ -132,15 +167,20 @@ export default function Home() {
     setMessages((current) => [...current, { role: "user", content: trimmed }]);
     setBusy(true);
     try {
-      const response = await askPapers(trimmed, selectedIds);
+      const response = await askResearchAgent(trimmed, selectedIds);
       setMessages((current) => [
         ...current,
-        { role: "assistant", content: response.answer, citations: response.citations }
+        {
+          role: "assistant",
+          content: response.answer,
+          citations: response.citations,
+          trace: response.trace
+        }
       ]);
     } catch (error) {
       setMessages((current) => [
         ...current,
-        { role: "assistant", content: error instanceof Error ? error.message : "Chat request failed" }
+        { role: "assistant", content: error instanceof Error ? error.message : "Agent request failed" }
       ]);
     } finally {
       setBusy(false);
@@ -153,209 +193,439 @@ export default function Home() {
     );
   }
 
+  function handleLogin(event: FormEvent) {
+    event.preventDefault();
+    if (!loginEmail.trim() || loginPassword.length < 6) {
+      setLoginError("Enter an email and a password with at least 6 characters.");
+      return;
+    }
+    localStorage.setItem("paperlens-authenticated", "true");
+    setAuthenticated(true);
+    setLoginPassword("");
+    setLoginError("");
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("paperlens-authenticated");
+    setAuthenticated(false);
+    setPapers([]);
+    setSelectedIds([]);
+    setActivePaper(null);
+    setMessages([]);
+    setStatus("");
+  }
+
   const suggestedQuestions = activePaper?.analysis.suggested_questions ?? [
     "What problem does this paper solve?",
-    "What evidence supports the claims?"
+    "What evidence supports the claims?",
+    "Compare the selected papers."
   ];
 
-  return (
-    <main className="appShell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brandMark">
-            <BookOpen size={22} />
-          </div>
-          <div>
-            <h1>PaperLens AI</h1>
-            <p>Research analysis and grounded paper chat</p>
-          </div>
-        </div>
-
-        <section className="panel ingestPanel">
-          <label className="field">
-            <span>Paper title</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Optional" />
-          </label>
-          <label className="field">
-            <span>Upload PDF or text</span>
-            <input
-              type="file"
-              accept=".pdf,.txt,.md"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
-          </label>
-          <label className="field">
-            <span>Open paper URL</span>
-            <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://arxiv.org/pdf/..." />
-          </label>
-          <div className="buttonRow">
-            <button className="button" onClick={handleUpload} disabled={!file || busy} title="Upload paper">
-              <FileUp size={17} /> Upload
-            </button>
-            <button className="button secondary" onClick={handleUrlImport} disabled={!url.trim() || busy} title="Import URL">
-              <Link size={17} /> Import
-            </button>
-          </div>
-          {status ? <div className="status">{status}</div> : null}
-        </section>
-
-        <button className="button secondary" onClick={refreshPapers} disabled={busy}>
-          <RefreshCw size={16} /> Refresh library
-        </button>
-
-        <section className="paperList">
-          {papers.length === 0 ? (
-            <p className="emptyText">Upload a PDF or import an open paper URL to start.</p>
-          ) : (
-            papers.map((paper) => (
-              <button
-                key={paper.id}
-                className={`paperButton ${selectedIds.includes(paper.id) ? "active" : ""}`}
-                onClick={() => togglePaper(paper.id)}
-              >
-                <h3>{paper.title}</h3>
-                <p className="muted">{paper.summary.slice(0, 150)}</p>
-                <div className="tagRow">
-                  {paper.key_terms.slice(0, 4).map((term) => (
-                    <span className="tag" key={term}>
-                      {term}
-                    </span>
-                  ))}
+  if (!authenticated) {
+    return (
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.16),transparent_34%),linear-gradient(135deg,#f8fafc,#eef2f7)] px-4 py-10">
+        <section className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-6xl items-center gap-10 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="space-y-8">
+            <Badge className="w-fit" variant="accent">
+              Agentic research workspace
+            </Badge>
+            <div className="space-y-5">
+              <h1 className="max-w-3xl text-5xl font-semibold tracking-normal text-slate-950">
+                Turn open research papers into cited answers, comparisons, and analyst-ready notes.
+              </h1>
+              <p className="max-w-2xl text-lg leading-8 text-slate-600">
+                PaperLens now routes questions through planner, retriever, analyst, and citation agents while Rust handles
+                extraction and grounded retrieval.
+              </p>
+            </div>
+            <div className="grid max-w-3xl gap-3 sm:grid-cols-3">
+              {["Upload papers", "Trace agent work", "Chat with citations"].map((item) => (
+                <div key={item} className="rounded-lg border bg-white/70 p-4 text-sm font-medium text-slate-700 shadow-sm">
+                  {item}
                 </div>
-              </button>
-            ))
-          )}
-        </section>
-      </aside>
-
-      <section className="main">
-        <div className="topBand">
-          <section className="panel analysis">
-            <div className="tagRow">
-              {selectedPapers.map((paper) => (
-                <span className="tag" key={paper.id}>
-                  {paper.title}
-                </span>
               ))}
             </div>
-            <h2>{activePaper?.title ?? "No paper selected"}</h2>
-            <p className="muted">
-              {activePaper?.analysis.summary ??
-                "Select an analyzed paper to inspect its summary, methods, contributions, and limitations."}
-            </p>
-
-            {activePaper ? (
-              <div className="analysisGrid">
-                <Insight title="Contributions" items={activePaper.analysis.contributions} />
-                <Insight title="Methods" items={activePaper.analysis.methods} />
-                <Insight title="Limitations" items={activePaper.analysis.limitations} />
-              </div>
-            ) : null}
-          </section>
-
-          <section className="panel questionPanel">
-            <h3>Suggested questions</h3>
-            {suggestedQuestions.map((item) => (
-              <button
-                className="questionButton"
-                key={item}
-                onClick={() => {
-                  void submitQuestion(undefined, item);
-                }}
-                disabled={!selectedIds.length || busy}
-              >
-                {item}
-              </button>
-            ))}
-          </section>
-        </div>
-
-        <section className="panel chatPanel">
-          <div>
-            <h2>
-              <Sparkles size={22} /> Chat with selected papers
-            </h2>
-            <p className="muted">Answers are grounded in extracted excerpts from the selected paper set.</p>
           </div>
 
-          <div className="messages">
-            {messages.length === 0 ? (
-              <p className="emptyText">Ask about claims, methods, datasets, limitations, or compare multiple papers.</p>
-            ) : (
-              messages.map((message, index) => (
-                <div className={`message ${message.role}`} key={`${message.role}-${index}`}>
-                  {message.content}
-                  {message.citations?.length ? (
-                    <div className="citations">
-                      {message.citations.map((citation) => (
-                        <div className="citation" key={`${citation.paper_id}-${citation.excerpt.slice(0, 20)}`}>
-                          <strong>{citation.title}</strong>: {citation.excerpt.slice(0, 240)}
+          <Card className="border-white/70 bg-white/88 shadow-soft backdrop-blur">
+            <CardHeader>
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <BookOpen size={24} />
+              </div>
+              <CardTitle className="text-2xl">Sign in to PaperLens AI</CardTitle>
+              <CardDescription>Use any email and a 6+ character password for this local demo.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form className="space-y-4" onSubmit={handleLogin}>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
+                    <Input
+                      className="pl-10"
+                      type="email"
+                      value={loginEmail}
+                      onChange={(event) => setLoginEmail(event.target.value)}
+                      placeholder="researcher@example.com"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
+                    <Input
+                      className="pl-10"
+                      type="password"
+                      value={loginPassword}
+                      onChange={(event) => setLoginPassword(event.target.value)}
+                      placeholder="Minimum 6 characters"
+                    />
+                  </div>
+                </div>
+                {loginError ? <p className="text-sm font-medium text-destructive">{loginError}</p> : null}
+                <Button className="w-full" type="submit">
+                  <LogIn size={18} /> Sign in
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-background">
+      <div className="grid min-h-screen lg:grid-cols-[360px_minmax(0,1fr)]">
+        <aside className="border-r bg-card/82 p-5 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <BookOpen size={22} />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold leading-none">PaperLens AI</h1>
+                <p className="mt-1 text-xs text-muted-foreground">Agentic paper analysis</p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={handleLogout} title="Sign out">
+              <LogOut size={18} />
+            </Button>
+          </div>
+
+          <Separator className="my-5" />
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              <Metric label="Papers" value={papers.length.toString()} />
+              <Metric label="Selected" value={selectedIds.length.toString()} />
+              <Metric label="Agents" value="4" />
+            </div>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <FileUp size={17} /> Ingest paper
+                </CardTitle>
+                <CardDescription>Upload a PDF/text file or import an open paper URL.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-2">
+                  <Label>Paper title</Label>
+                  <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Optional" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Upload PDF or text</Label>
+                  <Input
+                    type="file"
+                    accept=".pdf,.txt,.md"
+                    onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Open paper URL</Label>
+                  <Input
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                    placeholder="https://arxiv.org/pdf/..."
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button onClick={handleUpload} disabled={!file || busy}>
+                    <FileUp size={16} /> Upload
+                  </Button>
+                  <Button variant="secondary" onClick={handleUrlImport} disabled={!url.trim() || busy}>
+                    <Link size={16} /> Import
+                  </Button>
+                </div>
+                {status ? <p className="text-sm font-medium text-amber-700">{status}</p> : null}
+              </CardContent>
+            </Card>
+
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase text-muted-foreground">Library</h2>
+              <Button variant="ghost" size="sm" onClick={refreshPapers} disabled={busy}>
+                <RefreshCw size={15} /> Refresh
+              </Button>
+            </div>
+
+            <div className="max-h-[42vh] space-y-2 overflow-auto pr-1 scrollbar-thin">
+              {papers.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">
+                  Upload or import a paper to start an agent run.
+                </div>
+              ) : (
+                papers.map((paper) => (
+                  <button
+                    key={paper.id}
+                    className={cn(
+                      "w-full rounded-lg border bg-background p-3 text-left transition hover:border-primary/60",
+                      selectedIds.includes(paper.id) && "border-primary bg-primary/5"
+                    )}
+                    onClick={() => togglePaper(paper.id)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <FileText className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                      <div className="min-w-0 space-y-2">
+                        <h3 className="line-clamp-2 text-sm font-semibold">{paper.title}</h3>
+                        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{paper.summary}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {paper.key_terms.slice(0, 3).map((term) => (
+                            <Badge key={term} variant="outline" className="text-[10px]">
+                              {term}
+                            </Badge>
+                          ))}
                         </div>
-                      ))}
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <section className="min-w-0 p-5 lg:p-7">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <Badge variant="accent" className="mb-2">
+                <Workflow size={13} className="mr-1" /> Planner {"->"} Retriever {"->"} Analyst {"->"} Citation
+              </Badge>
+              <h2 className="text-3xl font-semibold tracking-normal">Research command center</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Select papers, inspect their analysis, and ask the agent team for grounded answers.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {selectedPapers.slice(0, 3).map((paper) => (
+                <Badge key={paper.id} variant="secondary" className="max-w-[220px] truncate">
+                  {paper.title}
+                </Badge>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <div className="space-y-5">
+              <Card className="overflow-hidden">
+                <CardHeader className="border-b bg-muted/40">
+                  <CardTitle className="flex items-center gap-2">
+                    <BrainCircuit size={20} /> Active paper intelligence
+                  </CardTitle>
+                  <CardDescription>
+                    {activePaper
+                      ? "Structured analysis generated during ingestion."
+                      : "Select a paper to inspect its generated research notes."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5 p-5">
+                  <div>
+                    <h3 className="text-2xl font-semibold">{activePaper?.title ?? "No paper selected"}</h3>
+                    <p className="mt-2 max-w-4xl leading-7 text-muted-foreground">
+                      {activePaper?.analysis.summary ??
+                        "The analysis panel will show contributions, methods, limitations, and key terms once a paper is selected."}
+                    </p>
+                  </div>
+
+                  {activePaper ? (
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <Insight title="Contributions" items={activePaper.analysis.contributions} />
+                      <Insight title="Methods" items={activePaper.analysis.methods} />
+                      <Insight title="Limitations" items={activePaper.analysis.limitations} />
                     </div>
                   ) : null}
-                </div>
-              ))
-            )}
-          </div>
+                </CardContent>
+              </Card>
 
-          {chatFile ? (
-            <div className="attachmentBar">
-              <span>{chatFile.name}</span>
-              <button
-                type="button"
-                className="button secondary"
-                onClick={() => void handleChatFileUpload(chatFile)}
-                disabled={busy}
-              >
-                <FileUp size={16} /> Analyze
-              </button>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles size={20} /> Suggested agent prompts
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-2 md:grid-cols-2">
+                  {suggestedQuestions.map((item) => (
+                    <Button
+                      key={item}
+                      variant="outline"
+                      className="h-auto justify-start whitespace-normal py-3 text-left"
+                      onClick={() => void submitQuestion(undefined, item)}
+                      disabled={!selectedIds.length || busy}
+                    >
+                      {item}
+                    </Button>
+                  ))}
+                </CardContent>
+              </Card>
             </div>
-          ) : null}
 
-          <form className="composer" onSubmit={submitQuestion}>
-            <label className="attachButton" title="Attach paper">
-              <Paperclip size={19} />
-              <input
-                type="file"
-                accept=".pdf,.txt,.md"
-                onChange={(event) => {
-                  const nextFile = event.target.files?.[0] ?? null;
-                  setChatFile(nextFile);
-                  event.currentTarget.value = "";
-                }}
-                disabled={busy}
-              />
-            </label>
-            <textarea
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              placeholder={
-                selectedIds.length
-                  ? "Ask a question about the selected papers..."
-                  : "Attach or upload a paper, then ask a question..."
-              }
-              disabled={busy}
-            />
-            <button className="iconButton" disabled={!question.trim() || !selectedIds.length || busy} title="Send question">
-              <Send size={20} />
-            </button>
-          </form>
+            <Card className="flex min-h-[720px] flex-col overflow-hidden">
+              <CardHeader className="border-b bg-slate-950 text-white">
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles size={19} /> Agent chat
+                </CardTitle>
+                <CardDescription className="text-slate-300">
+                  Answers route through tool-backed research agents and return citation excerpts.
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+                <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4 scrollbar-thin">
+                  {messages.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-5 text-sm leading-6 text-muted-foreground">
+                      Ask about claims, methods, datasets, limitations, or compare selected papers. Attach a paper with
+                      the paperclip to add context directly from the chat.
+                    </div>
+                  ) : (
+                    messages.map((message, index) => (
+                      <div
+                        className={cn(
+                          "rounded-lg p-3 text-sm leading-6",
+                          message.role === "user"
+                            ? "ml-auto max-w-[86%] bg-primary text-primary-foreground"
+                            : "mr-auto max-w-[92%] bg-muted"
+                        )}
+                        key={`${message.role}-${index}`}
+                      >
+                        <p className="whitespace-pre-wrap">{message.content}</p>
+                        {message.trace?.length ? <AgentTrace trace={message.trace} /> : null}
+                        {message.citations?.length ? <CitationList citations={message.citations} /> : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="border-t bg-card p-4">
+                  {chatFile ? (
+                    <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border bg-muted/60 p-2 text-sm">
+                      <span className="min-w-0 truncate">{chatFile.name}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void handleChatFileUpload(chatFile)}
+                        disabled={busy}
+                      >
+                        <FileUp size={15} /> Analyze
+                      </Button>
+                    </div>
+                  ) : null}
+
+                  <form className="grid grid-cols-[40px_minmax(0,1fr)_40px] gap-2" onSubmit={submitQuestion}>
+                    <Label
+                      className="flex h-10 cursor-pointer items-center justify-center rounded-md border bg-background text-primary"
+                      title="Attach paper"
+                    >
+                      <Paperclip size={18} />
+                      <input
+                        className="hidden"
+                        type="file"
+                        accept=".pdf,.txt,.md"
+                        onChange={(event) => {
+                          const nextFile = event.target.files?.[0] ?? null;
+                          setChatFile(nextFile);
+                          event.currentTarget.value = "";
+                        }}
+                        disabled={busy}
+                      />
+                    </Label>
+                    <Textarea
+                      className="min-h-10 resize-none"
+                      value={question}
+                      onChange={(event) => setQuestion(event.target.value)}
+                      placeholder={
+                        selectedIds.length
+                          ? "Ask the research agent..."
+                          : "Attach or select a paper before sending..."
+                      }
+                      disabled={busy}
+                    />
+                    <Button size="icon" disabled={!question.trim() || !selectedIds.length || busy} title="Send question">
+                      <Send size={18} />
+                    </Button>
+                  </form>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </section>
-      </section>
+      </div>
     </main>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="text-xl font-semibold">{value}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+    </div>
   );
 }
 
 function Insight({ title, items }: { title: string; items: string[] }) {
   return (
-    <section className="insight">
-      <h3>{title}</h3>
-      <ul>
+    <div className="rounded-lg border bg-background p-4">
+      <h4 className="mb-3 text-sm font-semibold uppercase text-muted-foreground">{title}</h4>
+      <ul className="space-y-2 text-sm leading-6">
         {items.map((item) => (
-          <li key={item}>{item}</li>
+          <li key={item} className="flex gap-2">
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+            <span>{item}</span>
+          </li>
         ))}
       </ul>
-    </section>
+    </div>
+  );
+}
+
+function AgentTrace({ trace }: { trace: AgentStep[] }) {
+  return (
+    <div className="mt-3 space-y-2 rounded-md border bg-background/70 p-3">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+        <Workflow size={13} /> Agent trace
+      </div>
+      {trace.map((step, index) => (
+        <div key={`${step.agent}-${step.action}-${index}`} className="text-xs leading-5 text-muted-foreground">
+          <span className="font-semibold text-foreground">{step.agent}</span> / {step.action}: {step.detail}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CitationList({ citations }: { citations: Citation[] }) {
+  return (
+    <div className="mt-3 space-y-2">
+      {citations.map((citation) => (
+        <div
+          className="rounded-md border-l-4 border-primary bg-background/70 p-3 text-xs leading-5 text-muted-foreground"
+          key={`${citation.paper_id}-${citation.excerpt.slice(0, 24)}`}
+        >
+          <span className="font-semibold text-foreground">{citation.title}</span>: {citation.excerpt.slice(0, 260)}
+        </div>
+      ))}
+    </div>
   );
 }
