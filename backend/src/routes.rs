@@ -1,4 +1,4 @@
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -17,6 +17,7 @@ pub fn router(state: AppState) -> Router {
         .route("/papers/upload", post(upload_paper))
         .route("/papers/url", post(ingest_url))
         .route("/chat", post(chat))
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .with_state(state)
 }
 
@@ -36,14 +37,14 @@ async fn upload_paper(
     let mut source = "uploaded file".to_string();
     let mut text = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(internal_error)? {
+    while let Some(field) = multipart.next_field().await.map_err(bad_request)? {
         let name = field.name().unwrap_or_default().to_string();
         match name.as_str() {
             "title" => title = field.text().await.ok().filter(|value| !value.trim().is_empty()),
             "file" => {
                 let filename = field.file_name().unwrap_or("paper").to_string();
                 source = filename.clone();
-                let bytes = field.bytes().await.map_err(internal_error)?;
+                let bytes = field.bytes().await.map_err(bad_request)?;
                 text = if filename.to_lowercase().ends_with(".pdf") {
                     Some(extract_pdf_text(&bytes).map_err(internal_error)?)
                 } else {
@@ -150,3 +151,6 @@ fn internal_error(error: impl std::fmt::Display) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
 }
 
+fn bad_request(error: impl std::fmt::Display) -> (StatusCode, String) {
+    (StatusCode::BAD_REQUEST, error.to_string())
+}
