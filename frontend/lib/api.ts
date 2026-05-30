@@ -1,0 +1,84 @@
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+
+export type PaperAnalysis = {
+  summary: string;
+  contributions: string[];
+  methods: string[];
+  limitations: string[];
+  key_terms: string[];
+  suggested_questions: string[];
+};
+
+export type Paper = {
+  id: string;
+  title: string;
+  source: string;
+  abstract_text: string;
+  full_text: string;
+  created_at: string;
+  analysis: PaperAnalysis;
+};
+
+export type PaperListItem = {
+  id: string;
+  title: string;
+  source: string;
+  created_at: string;
+  summary: string;
+  key_terms: string[];
+};
+
+export type Citation = {
+  paper_id: string;
+  title: string;
+  excerpt: string;
+};
+
+export type ChatResponse = {
+  answer: string;
+  citations: Citation[];
+};
+
+async function parseResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Request failed with ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export async function listPapers(): Promise<PaperListItem[]> {
+  return parseResponse(await fetch(`${API_URL}/papers`, { cache: "no-store" }));
+}
+
+export async function getPaper(id: string): Promise<Paper> {
+  return parseResponse(await fetch(`${API_URL}/papers/${id}`, { cache: "no-store" }));
+}
+
+export async function uploadPaper(file: File, title: string): Promise<Paper> {
+  const form = new FormData();
+  form.append("file", file);
+  if (title.trim()) form.append("title", title.trim());
+  return parseResponse(await fetch(`${API_URL}/papers/upload`, { method: "POST", body: form }));
+}
+
+export async function ingestPaperUrl(url: string, title: string): Promise<Paper> {
+  return parseResponse(
+    await fetch(`${API_URL}/papers/url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, title: title.trim() || undefined })
+    })
+  );
+}
+
+export async function askPapers(question: string, paperIds: string[]): Promise<ChatResponse> {
+  return parseResponse(
+    await fetch(`${API_URL}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, paper_ids: paperIds })
+    })
+  );
+}
+
