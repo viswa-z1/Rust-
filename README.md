@@ -1,1 +1,2 @@
-# Rust- This repeo is a 100 day challenge of Rust from fundamentals
+# Rust- This repeo contains a full stack AI Application written in Rust and Next JS to analyze open source research papers
+
