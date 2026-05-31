@@ -40,13 +40,15 @@ export type ChatResponse = {
 };
 
 export type AgentStep = {
-  agent: "planner" | "retriever" | "analyst" | "citation";
+  agent: string;
   action: string;
   detail: string;
 };
 
 export type AgentChatResponse = ChatResponse & {
   trace: AgentStep[];
+  provider?: string;
+  stop_reason?: string;
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -94,7 +96,7 @@ export async function askPapers(question: string, paperIds: string[]): Promise<C
 
 export async function askResearchAgent(question: string, paperIds: string[]): Promise<AgentChatResponse> {
   return parseResponse(
-    await fetch("/api/agent/chat", {
+    await fetch(`${API_URL}/agent/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, paper_ids: paperIds })
