@@ -1,6 +1,6 @@
 # PaperLens AI
 
-Full-stack research paper analysis app with a Rust Axum API and a Next.js frontend.
+Full-stack research paper analysis app with a Rust Axum API, a real Strands backend agent service, and a Next.js frontend.
 
 ## Features
 
@@ -10,25 +10,43 @@ Full-stack research paper analysis app with a Rust Axum API and a Next.js fronte
 - Chat with one or more selected papers using an agentic workflow and grounded excerpts as citations.
 - Agent trace in the UI shows planner, retriever, analyst, and citation steps for each answer.
 - shadcn-style Tailwind UI components for the research workspace.
-- Works without an AI key using heuristic analysis and keyword retrieval.
-- Uses an OpenAI-compatible chat API when `OPENAI_API_KEY` is configured.
+- Paper ingestion works without an AI key using heuristic analysis and keyword retrieval.
+- Agent chat uses the Strands Agents SDK with an OpenAI-compatible model.
 
 ## Run locally
+
+Install dependencies:
+
+```bash
+npm --prefix frontend install
+npm --prefix backend/agent-service install
+```
+
+Configure the backend:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Set `OPENAI_API_KEY` in `backend/.env`; the Strands agent service loads this file.
 
 Start the Rust API:
 
 ```bash
-cp backend/.env.example backend/.env
 cargo run -p paperlens-api
+```
+
+Start the Strands backend agent service in a second terminal:
+
+```bash
+npm --prefix backend/agent-service run dev
 ```
 
 Start the Next.js app:
 
 ```bash
-cd frontend
-cp .env.example .env.local
-npm install
-npm run dev
+cp frontend/.env.example frontend/.env.local
+npm --prefix frontend run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
@@ -53,19 +71,16 @@ Any OpenAI-compatible provider can be used by changing `OPENAI_BASE_URL` and `OP
 - `POST /papers/upload`
 - `POST /papers/url`
 - `POST /chat`
-- `POST /api/agent/chat` in the Next.js app
+- `POST /agent/chat`
 
 ## Agent architecture
 
-The agent layer lives in the Next.js app:
+The real Strands agent layer lives in the backend sidecar:
 
 ```text
-frontend/lib/agents/research-agent.ts
-frontend/app/api/agent/chat/route.ts
+backend/agent-service/src/server.ts
 ```
 
-The current implementation uses a Strands-style tool architecture: the agent plans the request, calls typed tools backed by the Rust API, asks the citation endpoint, and returns both the answer and trace. This keeps Rust responsible for extraction, storage, and retrieval while the TypeScript layer owns agent orchestration.
-
-The next step, if you want a full framework runtime, is to swap `runResearchAgent` for Strands Agents SDK while keeping the same tool boundaries.
+The Rust API exposes `POST /agent/chat` and proxies requests to the Strands service. The Strands agent has typed tools for `list_papers`, `get_paper`, and `ask_papers`, all backed by the Rust API. This keeps Rust responsible for extraction, storage, and retrieval while the Strands service owns agent orchestration.
 
 Paper data is stored in memory for this starter implementation. Add Postgres plus vector search when you are ready to persist libraries across restarts.
