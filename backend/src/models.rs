@@ -29,7 +29,7 @@ pub struct UrlIngestRequest {
     pub title: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChatRequest {
     pub question: String,
     pub paper_ids: Vec<Uuid>,
@@ -41,7 +41,23 @@ pub struct ChatResponse {
     pub citations: Vec<Citation>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentChatResponse {
+    pub answer: String,
+    pub citations: Vec<Citation>,
+    pub trace: Vec<AgentStep>,
+    pub provider: String,
+    pub stop_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentStep {
+    pub agent: String,
+    pub action: String,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Citation {
     pub paper_id: Uuid,
     pub title: String,
@@ -57,4 +73,3 @@ pub struct PaperListItem {
     pub summary: String,
     pub key_terms: Vec<String>,
 }
-
