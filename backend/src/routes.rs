@@ -5,7 +5,7 @@ use axum::{Json, Router};
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::models::{ChatRequest, ChatResponse, Citation, Paper, UrlIngestRequest};
+use crate::models::{AgentChatResponse, ChatRequest, ChatResponse, Citation, Paper, UrlIngestRequest};
 use crate::text::{extract_pdf_text, extract_title, normalize_whitespace, top_keyword_snippets};
 use crate::AppState;
 
@@ -17,6 +17,7 @@ pub fn router(state: AppState) -> Router {
         .route("/papers/upload", post(upload_paper))
         .route("/papers/url", post(ingest_url))
         .route("/chat", post(chat))
+        .route("/agent/chat", post(agent_chat))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .with_state(state)
 }
@@ -115,6 +116,37 @@ async fn chat(
     };
 
     Ok(Json(ChatResponse { answer, citations }))
+}
+
+async fn agent_chat(
+    Json(payload): Json<ChatRequest>,
+) -> Result<Json<AgentChatResponse>, (StatusCode, String)> {
+    let agent_url = std::env::var("AGENT_SERVICE_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8090".to_string());
+
+    let response = reqwest::Client::new()
+        .post(format!("{}/agent/chat", agent_url.trim_end_matches('/')))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Strands agent service is not reachable: {error}"),
+            )
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Strands agent service returned {status}: {body}"),
+        ));
+    }
+
+    let agent_response = response.json().await.map_err(internal_error)?;
+    Ok(Json(agent_response))
 }
 
 async fn build_paper(state: AppState, title: Option<String>, source: String, text: String) -> Paper {
