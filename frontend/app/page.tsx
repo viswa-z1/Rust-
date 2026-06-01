@@ -12,6 +12,7 @@ import {
   LogOut,
   Mail,
   Paperclip,
+  Phone,
   RefreshCw,
   Send,
   Sparkles,
@@ -30,6 +31,8 @@ import {
   getPaper,
   ingestPaperUrl,
   listPapers,
+  sendOtp,
+  verifyOtp,
   uploadPaper,
   type AgentStep,
   type Citation,
@@ -47,8 +50,10 @@ type Message = {
 
 export default function Home() {
   const [authenticated, setAuthenticated] = useState(false);
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
+  const [loginMobile, setLoginMobile] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpMessage, setOtpMessage] = useState("");
   const [loginError, setLoginError] = useState("");
   const [papers, setPapers] = useState<PaperListItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -74,7 +79,8 @@ export default function Home() {
   }, [authenticated, selectedIds.length]);
 
   useEffect(() => {
-    setAuthenticated(localStorage.getItem("paperlens-authenticated") === "true");
+    const token = window.localStorage.getItem("paperlens-token");
+    setAuthenticated(!!token);
   }, []);
 
   useEffect(() => {
@@ -193,20 +199,58 @@ export default function Home() {
     );
   }
 
-  function handleLogin(event: FormEvent) {
+  async function handleSendOtp(event: FormEvent) {
     event.preventDefault();
-    if (!loginEmail.trim() || loginPassword.length < 6) {
-      setLoginError("Enter an email and a password with at least 6 characters.");
+    setLoginError("");
+    setOtpMessage("");
+
+    const mobile = loginMobile.trim();
+    if (mobile.length < 8 || !/^\+?[0-9 ]+$/.test(mobile)) {
+      setLoginError("Enter a valid mobile number with country code.");
       return;
     }
-    localStorage.setItem("paperlens-authenticated", "true");
-    setAuthenticated(true);
-    setLoginPassword("");
+
+    try {
+      const response = await sendOtp(mobile);
+      setOtpSent(true);
+      setOtpMessage(response.message ?? "OTP sent. Enter the code to continue.");
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Could not send OTP.");
+    }
+  }
+
+  async function handleVerifyOtp(event: FormEvent) {
+    event.preventDefault();
     setLoginError("");
+
+    const mobile = loginMobile.trim();
+    const otp = otpCode.trim();
+    if (!mobile || !otp) {
+      setLoginError("Enter the OTP sent to your mobile number.");
+      return;
+    }
+
+    try {
+      const response = await verifyOtp(mobile, otp);
+      if (response.token) {
+        localStorage.setItem("paperlens-token", response.token);
+        localStorage.setItem("paperlens-mobile", mobile);
+        setAuthenticated(true);
+        setOtpCode("");
+        setOtpSent(false);
+        setOtpMessage("");
+        setLoginError("");
+      } else {
+        throw new Error("Missing authentication token from server.");
+      }
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "OTP verification failed.");
+    }
   }
 
   function handleLogout() {
-    localStorage.removeItem("paperlens-authenticated");
+    localStorage.removeItem("paperlens-token");
+    localStorage.removeItem("paperlens-mobile");
     setAuthenticated(false);
     setPapers([]);
     setSelectedIds([]);
@@ -253,39 +297,42 @@ export default function Home() {
                 <BookOpen size={24} />
               </div>
               <CardTitle className="text-2xl">Sign in to PaperLens AI</CardTitle>
-              <CardDescription>Use any email and a 6+ character password for this local demo.</CardDescription>
+              <CardDescription>Use your mobile number and OTP to authenticate securely.</CardDescription>
             </CardHeader>
             <CardContent>
-              <form className="space-y-4" onSubmit={handleLogin}>
+              <form className="space-y-4" onSubmit={otpSent ? handleVerifyOtp : handleSendOtp}>
                 <div className="space-y-2">
-                  <Label>Email</Label>
+                  <Label>Mobile number</Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
+                    <Phone className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
                     <Input
                       className="pl-10"
-                      type="email"
-                      value={loginEmail}
-                      onChange={(event) => setLoginEmail(event.target.value)}
-                      placeholder="researcher@example.com"
+                      type="tel"
+                      value={loginMobile}
+                      onChange={(event) => setLoginMobile(event.target.value)}
+                      placeholder="+1 555 123 4567"
                     />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      className="pl-10"
-                      type="password"
-                      value={loginPassword}
-                      onChange={(event) => setLoginPassword(event.target.value)}
-                      placeholder="Minimum 6 characters"
-                    />
+                {otpSent ? (
+                  <div className="space-y-2">
+                    <Label>OTP code</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
+                      <Input
+                        className="pl-10"
+                        type="text"
+                        value={otpCode}
+                        onChange={(event) => setOtpCode(event.target.value)}
+                        placeholder="123456"
+                      />
+                    </div>
                   </div>
-                </div>
+                ) : null}
+                {otpMessage ? <p className="text-sm text-slate-600">{otpMessage}</p> : null}
                 {loginError ? <p className="text-sm font-medium text-destructive">{loginError}</p> : null}
                 <Button className="w-full" type="submit">
-                  <LogIn size={18} /> Sign in
+                  <LogIn size={18} /> {otpSent ? "Verify OTP" : "Send OTP"}
                 </Button>
               </form>
             </CardContent>
