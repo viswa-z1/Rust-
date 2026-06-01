@@ -1,0 +1,14 @@
+{
+  "name": "paperlens-ai",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:web": "npm --prefix frontend run dev",
+    "dev:agent": "npm --prefix backend/agent-service run dev",
+    "typecheck:agent": "npm --prefix backend/agent-service run typecheck",
+    "build:web": "npm --prefix frontend run build",
+    "typecheck:web": "npm --prefix frontend run typecheck",
+    "dev:api": "cargo run -p paperlens-api",
+    "check:api": "cargo check -p paperlens-api"
+  }
+}
