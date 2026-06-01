@@ -84,3 +84,5 @@ backend/agent-service/src/server.ts
 The Rust API exposes `POST /agent/chat` and proxies requests to the Strands service. The Strands agent has typed tools for `list_papers`, `get_paper`, and `ask_papers`, all backed by the Rust API. This keeps Rust responsible for extraction, storage, and retrieval while the Strands service owns agent orchestration.
 
 Paper data is stored in memory for this starter implementation. Add Postgres plus vector search when you are ready to persist libraries across restart.
+# Rust- This repo contains a full stack AI Application written in Rust and Next JS to analyze open source research papers
+
