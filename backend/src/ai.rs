@@ -1,6 +1,8 @@
 use anyhow::Context;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use crate::analysis::{compact_context, heuristic_analysis};
 use crate::models::PaperAnalysis;
@@ -11,6 +13,7 @@ pub struct AiClient {
     api_key: Option<String>,
     base_url: String,
     chat_model: String,
+    embedding_model: String,
 }
 
 impl AiClient {
@@ -21,6 +24,8 @@ impl AiClient {
             base_url: std::env::var("OPENAI_BASE_URL")
                 .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
             chat_model: std::env::var("OPENAI_CHAT_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+            embedding_model: std::env::var("OPENAI_EMBEDDING_MODEL")
+                .unwrap_or_else(|_| "text-embedding-3-large".to_string()),
         }
     }
 
@@ -40,6 +45,70 @@ impl AiClient {
                 tracing::warn!(?error, "falling back to heuristic paper analysis");
                 heuristic_analysis(text)
             }
+        }
+    }
+
+    pub async fn embed_text(&self, text: &str) -> anyhow::Result<Vec<f32>> {
+        if self.api_key.is_none() {
+            return Ok(local_embedding(text));
+        }
+
+        let request = EmbeddingRequest {
+            model: self.embedding_model.clone(),
+            input: text.to_string(),
+        };
+
+        let response: EmbeddingResponse = self
+            .client
+            .post(format!("{}/embeddings", self.base_url.trim_end_matches('/')))
+            .bearer_auth(self.api_key.as_ref().context("missing OPENAI_API_KEY")?)
+            .json(&request)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        response
+            .data
+            .into_iter()
+            .next()
+            .map(|item| item.embedding)
+            .context("AI response did not include embeddings")
+    }
+
+    pub async fn embed_texts(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+        if self.api_key.is_none() {
+            return Ok(texts.iter().map(|text| local_embedding(text)).collect());
+        }
+
+        let request = EmbeddingRequestBatch {
+            model: self.embedding_model.clone(),
+            input: texts.to_vec(),
+        };
+
+        let response: EmbeddingResponse = self
+            .client
+            .post(format!("{}/embeddings", self.base_url.trim_end_matches('/')))
+            .bearer_auth(self.api_key.as_ref().context("missing OPENAI_API_KEY")?)
+            .json(&request)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        Ok(response.data.into_iter().map(|item| item.embedding).collect())
+    }
+
+    pub fn similarity(&self, a: &[f32], b: &[f32]) -> f32 {
+        let dot = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum::<f32>();
+        let norm_a = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm_a == 0.0 || norm_b == 0.0 {
+            0.0
+        } else {
+            dot / (norm_a * norm_b)
         }
     }
 
@@ -123,6 +192,47 @@ impl AiClient {
             .context("AI response did not include JSON")?;
         serde_json::from_str(content).context("failed to parse AI JSON")
     }
+}
+
+fn local_embedding(text: &str) -> Vec<f32> {
+    let mut bucket = vec![0.0; 128];
+    for token in text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|token| token.len() > 2)
+    {
+        let mut hasher = DefaultHasher::new();
+        token.to_lowercase().hash(&mut hasher);
+        let index = (hasher.finish() % bucket.len() as u64) as usize;
+        bucket[index] += 1.0;
+    }
+
+    let norm = bucket.iter().map(|value| value * value).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        bucket.iter_mut().for_each(|value| *value /= norm);
+    }
+    bucket
+}
+
+#[derive(Debug, Serialize)]
+struct EmbeddingRequest {
+    model: String,
+    input: String,
+}
+
+#[derive(Debug, Serialize)]
+struct EmbeddingRequestBatch {
+    model: String,
+    input: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmbeddingResponse {
+    data: Vec<EmbeddingData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmbeddingData {
+    embedding: Vec<f32>,
 }
 
 #[derive(Debug, Serialize)]
