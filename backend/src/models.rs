@@ -29,6 +29,40 @@ pub struct UrlIngestRequest {
     pub title: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct SendOtpRequest {
+    pub mobile: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct VerifyOtpRequest {
+    pub mobile: String,
+    pub otp: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SendOtpResponse {
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub otp: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct VerifyOtpResponse {
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct DocumentChunk {
+    pub id: Uuid,
+    pub paper_id: Uuid,
+    pub text: String,
+    pub embedding: Vec<f32>,
+    pub order: usize,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChatRequest {
     pub question: String,
