@@ -38,7 +38,7 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/send-otp", post(send_otp))
         .route("/auth/verify-otp", post(verify_otp))
         .route("/papers", get(list_papers))
-        .route("/papers/:id", get(get_paper))
+        .route("/papers/{id}", get(get_paper))
         .route("/papers/upload", post(upload_paper))
         .route("/papers/url", post(ingest_url))
         .route("/chat", post(chat))
@@ -228,6 +228,7 @@ async fn send_otp(
     // send via SMTP to carrier gateway configured in env
     let sms_gateway = std::env::var("SMS_GATEWAY_DOMAIN").ok();
     let smtp_host = std::env::var("SMTP_HOST").unwrap_or_else(|_| "localhost".to_string());
+    let smtp_port = std::env::var("SMTP_PORT").ok().and_then(|value| value.parse::<u16>().ok()).unwrap_or(587);
     let smtp_user = std::env::var("SMTP_USER").ok();
     let smtp_pass = std::env::var("SMTP_PASS").ok();
 
@@ -245,13 +246,16 @@ async fn send_otp(
             .map_err(|e| internal_error(e))?;
 
         let creds = smtp_user.clone().and_then(|u| smtp_pass.clone().map(|p| Credentials::new(u, p)));
-        let mailer = if let Some(creds) = creds {
-            AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
-                .map_err(internal_error)?
-                .credentials(creds)
+        let mailer = if smtp_port == 1025 && creds.is_none() {
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&smtp_host)
+                .port(smtp_port)
                 .build()
         } else {
-            AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host).map_err(internal_error)?.build()
+            let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host).map_err(internal_error)?;
+            if let Some(creds) = creds {
+                builder = builder.credentials(creds);
+            }
+            builder.build()
         };
 
         // send asynchronously
