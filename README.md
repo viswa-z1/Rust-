@@ -85,4 +85,6 @@ The Rust API exposes `POST /agent/chat` and proxies requests to the Strands serv
 
 Paper data is stored in memory for this starter implementation. Add Postgres plus vector search when you are ready to persist libraries across restart.
 
+The app is in development state
+
 
