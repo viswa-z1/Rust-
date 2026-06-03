@@ -1,0 +1,10 @@
+**/target
+**/node_modules
+.git
+.gitignore
+Dockerfile*
+docker-compose.yml
+*.log
+*.tmp
+*.env
+**/.DS_Store
